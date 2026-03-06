@@ -234,29 +234,180 @@ export function drawTimeSeries(canvasId, labels, values, name, unit, color = '#8
   drawLegend(ctx, w, [{ color, label: `${name} (${unit})` }]);
 }
 
-/** Draw a heatmap-style correlation matrix. Returns HTML string. */
-export function renderMatrixHTML(result) {
+/** Render an interactive canvas heatmap matrix. Returns the container element. */
+export function renderMatrixCanvas(container, result, onCellClick) {
   const { ids, pearson, n_points } = result;
   const n = ids.length;
 
-  let html = '<table class="matrix-table"><thead><tr><th></th>';
-  for (const id of ids) {
-    html += `<th title="${id}">${id.split('-').pop()}</th>`;
-  }
-  html += '</tr></thead><tbody>';
+  // Short display names
+  const names = ids.map(id => {
+    const parts = id.replace(/\s*\(.*?\)\s*/g, '').split(/[\s/]+/);
+    return parts.length > 3 ? parts.slice(0, 3).join(' ') : id;
+  });
 
+  // Layout
+  const cellSize = Math.max(28, Math.min(60, Math.floor(600 / n)));
+  const labelSpace = 140;
+  const topLabelSpace = 140;
+  const totalW = labelSpace + n * cellSize + 60; // 60 for color legend
+  const totalH = topLabelSpace + n * cellSize + 20;
+
+  // Create canvas
+  container.innerHTML = '';
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'position:relative;overflow-x:auto;overflow-y:auto;max-height:80vh;';
+  const canvas = document.createElement('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = totalW * dpr;
+  canvas.height = totalH * dpr;
+  canvas.style.width = totalW + 'px';
+  canvas.style.height = totalH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Tooltip element
+  const tooltip = document.createElement('div');
+  tooltip.className = 'matrix-tooltip';
+  wrapper.appendChild(canvas);
+  wrapper.appendChild(tooltip);
+  container.appendChild(wrapper);
+
+  // Color scale: blue (negative) → dark (zero) → orange/red (positive)
+  function heatColor(r) {
+    const a = Math.abs(r);
+    if (a < 0.02) return '#1a1a2e';
+    if (r > 0) {
+      const t = Math.min(a, 1);
+      const red = Math.round(40 + 215 * t);
+      const green = Math.round(40 + 140 * t * (1 - t * 0.5));
+      const blue = Math.round(40 + 40 * (1 - t));
+      return `rgb(${red},${green},${blue})`;
+    } else {
+      const t = Math.min(a, 1);
+      const red = Math.round(40 + 40 * (1 - t));
+      const green = Math.round(40 + 100 * t * (1 - t * 0.4));
+      const blue = Math.round(40 + 215 * t);
+      return `rgb(${red},${green},${blue})`;
+    }
+  }
+
+  // Draw cells
   for (let i = 0; i < n; i++) {
-    html += `<tr><th title="${ids[i]}">${ids[i].split('-').pop()}</th>`;
     for (let j = 0; j < n; j++) {
       const r = pearson[i][j];
-      const color = corrColor(r);
-      const text = i === j ? '1.00' : r.toFixed(2);
-      html += `<td class="matrix-cell" style="background:${color};color:${Math.abs(r) > 0.5 ? '#fff' : '#e0e0ec'}" data-i="${i}" data-j="${j}" title="${ids[i]} vs ${ids[j]}: r=${r.toFixed(3)}, n=${n_points[i][j]}">${text}</td>`;
+      const x = labelSpace + j * cellSize;
+      const y = topLabelSpace + i * cellSize;
+
+      ctx.fillStyle = heatColor(r);
+      ctx.fillRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+
+      // Round corners effect
+      ctx.strokeStyle = '#0a0a0f';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, cellSize - 1, cellSize - 1);
+
+      // Value text (only if cells are big enough)
+      if (cellSize >= 36) {
+        const absR = Math.abs(r);
+        ctx.fillStyle = absR > 0.4 ? '#fff' : '#888';
+        ctx.font = `${absR > 0.7 ? 'bold ' : ''}${cellSize > 45 ? 11 : 9}px -apple-system, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(i === j ? '' : r.toFixed(2), x + cellSize / 2, y + cellSize / 2);
+      }
+
+      // Diagonal highlight
+      if (i === j) {
+        ctx.fillStyle = '#818cf840';
+        ctx.fillRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+      }
     }
-    html += '</tr>';
   }
-  html += '</tbody></table>';
-  return html;
+
+  // Row labels (left side)
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.font = '11px -apple-system, sans-serif';
+  for (let i = 0; i < n; i++) {
+    const y = topLabelSpace + i * cellSize + cellSize / 2;
+    ctx.fillStyle = '#c0c0d0';
+    const label = names[i].length > 20 ? names[i].slice(0, 18) + '...' : names[i];
+    ctx.fillText(label, labelSpace - 8, y);
+  }
+
+  // Column labels (top, rotated 45°)
+  ctx.save();
+  for (let j = 0; j < n; j++) {
+    const x = labelSpace + j * cellSize + cellSize / 2;
+    ctx.save();
+    ctx.translate(x, topLabelSpace - 8);
+    ctx.rotate(-Math.PI / 4);
+    ctx.fillStyle = '#c0c0d0';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const label = names[j].length > 20 ? names[j].slice(0, 18) + '...' : names[j];
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Color legend
+  const legX = labelSpace + n * cellSize + 16;
+  const legY = topLabelSpace;
+  const legH = Math.min(n * cellSize, 200);
+  const legW = 14;
+  for (let i = 0; i < legH; i++) {
+    const r = 1 - 2 * (i / legH); // +1 at top, -1 at bottom
+    ctx.fillStyle = heatColor(r);
+    ctx.fillRect(legX, legY + i, legW, 1);
+  }
+  ctx.strokeStyle = '#333';
+  ctx.strokeRect(legX, legY, legW, legH);
+  ctx.fillStyle = '#888';
+  ctx.font = '9px -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('+1.0', legX + legW + 4, legY + 4);
+  ctx.fillText(' 0.0', legX + legW + 4, legY + legH / 2 + 3);
+  ctx.fillText('-1.0', legX + legW + 4, legY + legH + 3);
+
+  // Hover + click interaction
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left);
+    const my = (e.clientY - rect.top);
+    const j = Math.floor((mx - labelSpace) / cellSize);
+    const i = Math.floor((my - topLabelSpace) / cellSize);
+
+    if (i >= 0 && i < n && j >= 0 && j < n && i !== j) {
+      const r = pearson[i][j];
+      const pts = n_points[i][j];
+      tooltip.innerHTML = `<strong>${names[i]}</strong> vs <strong>${names[j]}</strong><br>
+        r = <span style="color:${r > 0 ? '#f59e0b' : '#3b82f6'};font-weight:bold">${r.toFixed(4)}</span> | ${pts} points`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+      tooltip.style.top = (e.clientY - rect.top - 40) + 'px';
+      canvas.style.cursor = 'pointer';
+    } else {
+      tooltip.style.display = 'none';
+      canvas.style.cursor = 'default';
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.style.display = 'none';
+  });
+
+  if (onCellClick) {
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const j = Math.floor(((e.clientX - rect.left) - labelSpace) / cellSize);
+      const i = Math.floor(((e.clientY - rect.top) - topLabelSpace) / cellSize);
+      if (i >= 0 && i < n && j >= 0 && j < n && i !== j) {
+        onCellClick(i, j, ids, pearson[i][j]);
+      }
+    });
+  }
 }
 
 

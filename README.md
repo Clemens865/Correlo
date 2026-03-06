@@ -6,6 +6,8 @@ Correlo connects to **146 free public APIs** and lets you explore individual dat
 
 > **Status: Early Alpha** — This is an experimental project. The scope is not yet fully defined. APIs may break, data quality varies, and the UI is evolving. Contributions and feedback welcome.
 
+![Correlation Heatmap](docs/screenshots/heatmap.png)
+
 ## By the Numbers
 
 | | |
@@ -25,6 +27,8 @@ Select any dataset and click **Explore** to see its full time series — chart, 
 
 ### Compare Two Datasets
 
+![Correlation Analysis](docs/screenshots/correlation.png)
+
 Pick any two of 146 datasets. Correlo fetches the data, aligns time series across different granularities (daily, monthly, yearly), and computes:
 
 - **Pearson correlation** — linear relationship strength
@@ -34,6 +38,8 @@ Pick any two of 146 datasets. Correlo fetches the data, aligns time series acros
 - **P-value approximation** — statistical significance
 
 An optional AI analysis (Claude Sonnet) explains the correlation in plain language — whether it's likely causal, coincidental, or driven by a hidden variable.
+
+![Charts and Visualizations](docs/screenshots/charts.png)
 
 ### Correlation Matrix
 

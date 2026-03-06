@@ -3,8 +3,8 @@
  * Wires up UI, state management, WASM engine, and API layer.
  */
 
-import { fetchCatalog, fetchDataset, proxyFetch, aiParse, aiDiscover, aiInsight } from './api.js?v=3';
-import { drawOverlay, drawScatter, drawDualAxis, drawTimeSeries, renderMatrixHTML } from './charts.js?v=3';
+import { fetchCatalog, fetchDataset, proxyFetch, aiParse, aiDiscover, aiInsight } from './api.js?v=4';
+import { drawOverlay, drawScatter, drawDualAxis, drawTimeSeries, renderMatrixCanvas } from './charts.js?v=4';
 
 // --- WASM engine -----------------------------------------------------------
 let wasm = null;
@@ -123,10 +123,25 @@ function populateDropdowns() {
 function populateMatrixControls() {
   const el = $('matrixControls');
   const allApis = [...state.catalog, ...state.customDatasets];
-  el.innerHTML = allApis.map(a =>
-    `<div class="matrix-chip" data-id="${a.id}" title="${a.desc}">${a.name}</div>`
-  ).join('');
+  const categories = [...new Set(allApis.map(a => a.category))];
 
+  let html = '';
+  for (const cat of categories) {
+    const apis = allApis.filter(a => a.category === cat);
+    html += `<div class="matrix-cat-group">`;
+    html += `<div class="matrix-cat-header" data-cat="${cat}">
+      <span class="matrix-cat-name">${cat}</span>
+      <span class="matrix-cat-toggle" data-cat="${cat}">select all</span>
+    </div>`;
+    html += `<div class="matrix-cat-chips">`;
+    for (const api of apis) {
+      html += `<div class="matrix-chip" data-id="${api.id}" data-cat="${cat}" title="${api.desc}">${api.name}</div>`;
+    }
+    html += `</div></div>`;
+  }
+  el.innerHTML = html;
+
+  // Chip click
   el.querySelectorAll('.matrix-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const id = chip.dataset.id;
@@ -137,9 +152,37 @@ function populateMatrixControls() {
         state.matrixSelected.add(id);
         chip.classList.add('selected');
       }
-      $('matrixBtn').disabled = state.matrixSelected.size < 2;
+      updateMatrixBtn();
     });
   });
+
+  // Category toggle
+  el.querySelectorAll('.matrix-cat-toggle').forEach(toggle => {
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cat = toggle.dataset.cat;
+      const chips = el.querySelectorAll(`.matrix-chip[data-cat="${cat}"]`);
+      const allSelected = [...chips].every(c => state.matrixSelected.has(c.dataset.id));
+      chips.forEach(c => {
+        if (allSelected) {
+          state.matrixSelected.delete(c.dataset.id);
+          c.classList.remove('selected');
+        } else {
+          state.matrixSelected.add(c.dataset.id);
+          c.classList.add('selected');
+        }
+      });
+      toggle.textContent = allSelected ? 'select all' : 'deselect';
+      updateMatrixBtn();
+    });
+  });
+}
+
+function updateMatrixBtn() {
+  const n = state.matrixSelected.size;
+  const btn = $('matrixBtn');
+  btn.disabled = n < 2;
+  btn.textContent = n < 2 ? 'Build Matrix' : `Build Matrix (${n} datasets, ${n * (n - 1) / 2} pairs)`;
 }
 
 // --- Location type awareness ------------------------------------------------
@@ -963,15 +1006,52 @@ async function doBuildMatrix() {
     const result = JSON.parse(resultJson);
 
     $('matrixPanel').style.display = 'block';
-    $('matrixGrid').innerHTML = renderMatrixHTML(result);
 
-    log(`Correlation matrix computed (${ids.length}x${ids.length})`, 'success');
+    // Use real names from fetched data for display
+    result.ids = ids.map(id => {
+      const d = state.matrixData[id];
+      return d ? d.name : id;
+    });
+
+    renderMatrixCanvas($('matrixGrid'), result, (i, j, matrixIds, r) => {
+      // Click cell → switch to Compare tab with this pair
+      const idI = ids[i], idJ = ids[j];
+      selA.value = idI;
+      selB.value = idJ;
+      state.selectedA = idI;
+      state.selectedB = idJ;
+      updateSlots();
+      updateFetchBtn();
+      updateLocationVisibility();
+      // Switch to Compare tab
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector('.tab[data-tab="compare"]').classList.add('active');
+      $('tab-compare').classList.add('active');
+      log(`Selected from matrix: ${matrixIds[i]} vs ${matrixIds[j]} (r=${r.toFixed(4)})`, 'ai');
+    });
+
+    // Show summary stats
+    const pairs = ids.length * (ids.length - 1) / 2;
+    let strongCount = 0;
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++)
+        if (Math.abs(result.pearson[i][j]) > 0.7) strongCount++;
+    $('matrixSummary').style.display = 'block';
+    $('matrixSummary').innerHTML = `
+      <span>${ids.length} datasets</span>
+      <span>${pairs} pairs computed</span>
+      <span>${commonLabels.length} aligned data points</span>
+      <span class="strong-count">${strongCount} strong correlations (|r| > 0.7)</span>
+    `;
+
+    log(`Correlation matrix computed (${ids.length}x${ids.length}, ${strongCount} strong)`, 'success');
 
   } catch (e) {
     log(`Matrix error: ${e.message}`, 'error');
   } finally {
     matrixBtn.disabled = false;
-    matrixBtn.textContent = 'Build Matrix';
+    updateMatrixBtn();
   }
 }
 
