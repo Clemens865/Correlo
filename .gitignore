@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+correlation-engine/target/
+www/pkg/
+.wiggum_cache/
+wiggum_results.json
+.DS_Store

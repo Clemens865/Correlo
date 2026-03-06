@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Correlation Explorer</title>
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #12121c; --surface2: #1a1a28; --border: #252535;
+  --text: #e0e0ec; --dim: #606078; --accent: #818cf8; --accent2: #6366f1;
+  --green: #34d399; --red: #f87171; --yellow: #fbbf24; --blue: #60a5fa; --purple: #a78bfa;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* Header */
+.header { padding: 14px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.header-left { display: flex; align-items: center; gap: 12px; }
+.logo { width: 34px; height: 34px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.logo svg { width: 18px; height: 18px; }
+.header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.header .sub { font-size: 12px; color: var(--dim); }
+.header-right { display: flex; gap: 8px; align-items: center; }
+
+/* Tabs */
+.tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 24px; background: var(--surface); }
+.tab { padding: 10px 20px; font-size: 13px; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* AI Search Bar */
+.search-section { padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.search-row { display: flex; gap: 10px; max-width: 800px; }
+.search-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; color: var(--text); font-size: 14px; font-family: inherit; outline: none; }
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--dim); }
+
+/* Selection bar */
+.selection-bar { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
+.select-group { display: flex; flex-direction: column; gap: 4px; }
+.select-group label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--dim); font-weight: 600; }
+.select-group select { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-family: inherit; font-size: 13px; min-width: 180px; cursor: pointer; outline: none; }
+.select-group select:focus { border-color: var(--accent); }
+
+/* Buttons */
+.btn { padding: 8px 18px; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-secondary:hover { border-color: var(--dim); }
+.btn-ai { background: linear-gradient(135deg, #818cf8, #a78bfa); color: white; }
+.btn-ai:hover { opacity: 0.9; }
+
+/* Main content area */
+.content { padding: 20px 24px; max-width: 1400px; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Panels */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+.panel h3 { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.panel h3 .dim { color: var(--dim); font-weight: 400; }
+
+/* Dataset slots */
+.slots { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin-bottom: 16px; }
+.slot { background: var(--bg); border: 2px dashed var(--border); border-radius: 10px; padding: 16px; text-align: center; min-height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.2s; }
+.slot.filled { border-style: solid; border-color: var(--accent); }
+.slot .slot-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--dim); margin-bottom: 4px; }
+.slot .slot-name { font-size: 14px; font-weight: 600; }
+.slot .slot-meta { font-size: 11px; color: var(--accent); margin-top: 4px; }
+.slot-vs { font-size: 12px; color: var(--dim); font-weight: 600; }
+
+/* Result grid */
+.result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.stat-card { background: var(--bg); border-radius: 8px; padding: 14px; }
+.stat-card .label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.stat-card .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-card .sub { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+/* Strength badges */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge.very-strong { background: #34d39920; color: var(--green); }
+.badge.strong { background: #34d39915; color: #4ade80; }
+.badge.moderate { background: #fbbf2420; color: var(--yellow); }
+.badge.weak { background: #f8717120; color: var(--red); }
+.badge.negligible { background: #60607820; color: var(--dim); }
+
+/* Charts */
+.chart-container { position: relative; width: 100%; height: 280px; background: var(--bg); border-radius: 8px; overflow: hidden; }
+.chart-container canvas { width: 100%; height: 100%; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.chart-label { font-size: 11px; color: var(--dim); text-align: center; margin-top: 6px; }
+
+/* AI insight box */
+.ai-insight { background: linear-gradient(135deg, #818cf810, #a78bfa08); border: 1px solid #818cf830; border-radius: 12px; padding: 20px; margin-top: 16px; }
+.ai-insight .ai-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--purple); font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+.ai-insight .ai-tag::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--purple); animation: pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.ai-body { font-size: 13px; line-height: 1.7; color: var(--text); }
+.ai-body h2, .ai-body h3, .ai-body h4 { color: var(--text); margin: 16px 0 6px 0; font-size: 13px; font-weight: 600; letter-spacing: 0.3px; }
+.ai-body h2::before, .ai-body h3::before { content: ''; display: inline-block; width: 3px; height: 12px; background: var(--purple); border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+.ai-body p { margin: 4px 0 10px 0; }
+.ai-body ul, .ai-body ol { margin: 6px 0 12px 0; padding-left: 20px; }
+.ai-body li { margin: 4px 0; }
+.ai-body strong { color: #c4b5fd; font-weight: 600; }
+.ai-body em { color: var(--dim); font-style: italic; }
+.ai-body code { background: #ffffff10; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+.ai-body hr { border: none; border-top: 1px solid #818cf820; margin: 12px 0; }
+
+/* AI suggestions */
+.ai-suggestions { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 12px; }
+.suggestion-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.2s; }
+.suggestion-card:hover { border-color: var(--accent); }
+.suggestion-card .name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.suggestion-card .why { font-size: 11px; color: var(--dim); }
+
+/* Matrix */
+.matrix-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.matrix-chip { padding: 6px 12px; border-radius: 6px; font-size: 12px; background: var(--bg); border: 1px solid var(--border); cursor: pointer; transition: all 0.15s; }
+.matrix-chip.selected { border-color: var(--accent); background: #818cf815; color: var(--accent); }
+.matrix-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.matrix-table th, .matrix-table td { padding: 8px; text-align: center; border: 1px solid var(--border); }
+.matrix-table th { background: var(--surface2); color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matrix-cell { font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; transition: opacity 0.15s; }
+.matrix-cell:hover { opacity: 0.8; }
+
+/* Custom API panel */
+.custom-url { display: flex; gap: 8px; margin-bottom: 12px; }
+.custom-url input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-family: 'SF Mono', monospace; font-size: 12px; outline: none; }
+.custom-url input:focus { border-color: var(--accent); }
+.json-preview { background: var(--bg); border-radius: 8px; padding: 12px; font-family: 'SF Mono', monospace; font-size: 11px; max-height: 200px; overflow-y: auto; color: var(--dim); white-space: pre-wrap; word-break: break-all; }
+.field-mapping { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.field-mapping input { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; color: var(--text); font-size: 12px; outline: none; }
+
+/* Log */
+.log { background: var(--bg); border-radius: 8px; padding: 10px 12px; font-family: 'SF Mono', monospace; font-size: 11px; max-height: 160px; overflow-y: auto; }
+.log-entry { padding: 2px 0; color: var(--dim); }
+.log-entry.error { color: var(--red); }
+.log-entry.success { color: var(--green); }
+.log-entry.ai { color: var(--purple); }
+
+/* Loader */
+.loader { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Data table */
+.data-table-wrap { max-height: 400px; overflow: auto; border-radius: 8px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.data-table th { background: var(--surface2); padding: 8px 12px; text-align: left; position: sticky; top: 0; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.data-table td { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.data-table tr:hover td { background: var(--surface2); }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .chart-row { grid-template-columns: 1fr; }
+  .slots { grid-template-columns: 1fr; }
+  .slot-vs { display: none; }
+  .selection-bar { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round">
+        <path d="M3 3v18h18"/><path d="M7 17l4-8 4 4 5-9"/>
+      </svg>
+    </div>
+    <div>
+      <h1>API Correlation Explorer</h1>
+      <div class="sub">Discover patterns across public data</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="statusPill" style="font-size:11px;color:var(--dim)"></span>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="compare">Compare</div>
+  <div class="tab" data-tab="matrix">Matrix</div>
+  <div class="tab" data-tab="custom">Custom API</div>
+</div>
+
+<!-- AI Search -->
+<div class="search-section">
+  <div class="search-row">
+    <input class="search-input" id="aiSearch" placeholder="Ask anything... e.g. &quot;Does weather affect crypto prices?&quot;" />
+    <button class="btn btn-ai" id="aiSearchBtn">Ask AI</button>
+  </div>
+  <div id="aiSuggestions"></div>
+</div>
+
+<!-- Selection dropdowns -->
+<div class="selection-bar" id="selectionBar">
+  <div class="select-group">
+    <label>Dataset A</label>
+    <select id="selA"><option value="">Choose...</option></select>
+  </div>
+  <div class="select-group">
+    <label>Dataset B</label>
+    <select id="selB"><option value="">Choose...</option></select>
+  </div>
+  <div class="select-group" id="locationGroup">
+    <label>Location</label>
+    <select id="selLocation"></select>
+  </div>
+  <div class="select-group" id="countryGroup" style="display:none">
+    <label>Country</label>
+    <select id="selCountry"></select>
+  </div>
+  <div class="select-group">
+    <label>Period</label>
+    <select id="selDays"></select>
+  </div>
+  <button class="btn btn-primary" id="fetchBtn" disabled>Fetch &amp; Compare</button>
+  <button class="btn btn-secondary" id="clearBtn">Clear</button>
+</div>
+
+<!-- Tab: Compare -->
+<div class="content">
+  <div class="tab-content active" id="tab-compare">
+
+    <div class="panel" id="slotsPanel">
+      <div class="slots">
+        <div class="slot" id="slotA">
+          <div class="slot-label">Dataset A</div>
+          <div class="slot-name" style="color:var(--dim)">Select from dropdown</div>
+        </div>
+        <div class="slot-vs">VS</div>
+        <div class="slot" id="slotB">
+          <div class="slot-label">Dataset B</div>
+          <div class="slot-name" style="color:var(--dim)">Select from dropdown</div>
+        </div>
+      </div>
+      <div id="compatInfo" style="display:none;font-size:12px;text-align:center;padding:4px 0"></div>
+    </div>
+
+    <div class="panel" id="resultsPanel" style="display:none">
+      <h3>Correlation Results</h3>
+      <div class="result-grid" id="resultGrid"></div>
+      <div id="aiInsight"></div>
+    </div>
+
+    <div class="panel" id="chartsPanel" style="display:none">
+      <h3>Visualizations</h3>
+      <div class="chart-container"><canvas id="overlayChart"></canvas></div>
+      <div class="chart-label">Normalized overlay — both datasets scaled to 0-1</div>
+      <div class="chart-row">
+        <div>
+          <div class="chart-container"><canvas id="scatterChart"></canvas></div>
+          <div class="chart-label">Scatter plot with regression line</div>
+        </div>
+        <div>
+          <div class="chart-container"><canvas id="dualAxisChart"></canvas></div>
+          <div class="chart-label">Dual axis — original units</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="statsPanel" style="display:none">
+      <h3>Dataset Statistics</h3>
+      <div class="result-grid" id="statsGrid"></div>
+    </div>
+
+    <div class="panel" id="tablePanel" style="display:none">
+      <h3>Data Table <span class="dim" id="tableCount"></span>
+        <button class="btn btn-secondary" id="exportCsv" style="margin-left:auto;font-size:11px;padding:4px 10px">Export CSV</button>
+      </h3>
+      <div class="data-table-wrap" id="tableWrap"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Activity Log</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <!-- Tab: Matrix -->
+  <div class="tab-content" id="tab-matrix">
+    <div class="panel">
+      <h3>Select datasets for correlation matrix</h3>
+      <div class="matrix-controls" id="matrixControls"></div>
+      <div style="margin-top:12px">
+        <button class="btn btn-primary" id="matrixBtn" disabled>Build Matrix</button>
+      </div>
+    </div>
+    <div class="panel" id="matrixPanel" style="display:none">
+      <h3>Pearson Correlation Matrix</h3>
+      <div id="matrixGrid" style="overflow-x:auto"></div>
+    </div>
+  </div>
+
+  <!-- Tab: Custom API -->
+  <div class="tab-content" id="tab-custom">
+    <div class="panel">
+      <h3>Connect Any API</h3>
+      <p style="font-size:12px;color:var(--dim);margin-bottom:12px">Paste any public API URL. AI will auto-detect the data structure.</p>
+      <div class="custom-url">
+        <input id="customUrl" placeholder="https://api.example.com/v1/data" />
+        <button class="btn btn-ai" id="customFetchBtn">Fetch &amp; Detect</button>
+      </div>
+      <div id="customPreview"></div>
+      <div id="customMapping" style="display:none">
+        <h3 style="margin-top:16px">Detected Fields</h3>
+        <div class="field-mapping">
+          <div class="select-group">
+            <label>Labels path</label>
+            <input id="customLabels" placeholder="data.dates" />
+          </div>
+          <div class="select-group">
+            <label>Values path</label>
+            <input id="customValues" placeholder="data.values" />
+          </div>
+          <div class="select-group">
+            <label>Dataset name</label>
+            <input id="customName" placeholder="My Dataset" />
+          </div>
+          <div class="select-group">
+            <label>Unit</label>
+            <input id="customUnit" placeholder="USD" />
+          </div>
+        </div>
+        <button class="btn btn-primary" id="customAddBtn" style="margin-top:12px">Add to Explorer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/api.js?v=2"></script>
+<script type="module" src="./js/charts.js?v=2"></script>
+<script type="module" src="./js/app.js?v=2"></script>
+
+</body>
+</html>
