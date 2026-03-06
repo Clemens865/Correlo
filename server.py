@@ -23,6 +23,28 @@ ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CACHE: dict[str, tuple[float, dict]] = {}
 CACHE_TTL = 300  # 5 minutes
 
+import re
+
+def extract_json(text):
+    """Extract JSON from AI response, handling markdown code blocks."""
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try extracting from ```json ... ``` or ``` ... ```
+    m = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
+    if m:
+        return json.loads(m.group(1))
+    # Try finding first { ... } or [ ... ]
+    for start, end in [('{', '}'), ('[', ']')]:
+        i = text.find(start)
+        if i >= 0:
+            j = text.rfind(end)
+            if j > i:
+                return json.loads(text[i:j+1])
+    raise json.JSONDecodeError("No JSON found", text, 0)
+
 
 # --- Server routes ----------------------------------------------------------
 
@@ -155,9 +177,9 @@ Respond with ONLY valid JSON:
         }]
     )
     try:
-        result = json.loads(msg.content[0].text)
+        result = extract_json(msg.content[0].text)
         return web.json_response(result)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         return web.json_response({"raw": msg.content[0].text}, status=422)
 
 
@@ -210,9 +232,9 @@ Respond with ONLY valid JSON:
         }]
     )
     try:
-        result = json.loads(msg.content[0].text)
+        result = extract_json(msg.content[0].text)
         return web.json_response(result)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         return web.json_response({"raw": msg.content[0].text}, status=422)
 
 

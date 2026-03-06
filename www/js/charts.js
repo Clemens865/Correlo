@@ -195,6 +195,45 @@ export function drawDualAxis(canvasId, labels, dataA, dataB, nameA, nameB, unitA
   ]);
 }
 
+/** Draw a single time series with filled area and Y-axis in original units. */
+export function drawTimeSeries(canvasId, labels, values, name, unit, color = '#818cf8') {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || values.length < 2) return;
+  const { ctx, w, h } = setupCanvas(canvas);
+
+  const pad = { top: 20, right: 16, bottom: 32, left: 54 };
+  const pw = w - pad.left - pad.right;
+  const ph = h - pad.top - pad.bottom;
+  const n = values.length;
+  const xStep = pw / (n - 1);
+
+  const minV = Math.min(...values), maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+  const norm = values.map(v => (v - minV) / range);
+
+  // Grid + Y labels
+  ctx.strokeStyle = COLORS.grid;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ph * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = COLORS.label;
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    const val = maxV - (i / 4) * range;
+    ctx.fillText(formatNum(val), pad.left - 6, y + 3);
+  }
+
+  // Line + fill
+  drawLine(ctx, norm, pad, pw, ph, xStep, color, 2);
+
+  // X labels
+  drawXLabels(ctx, labels, pad, pw, h, xStep);
+
+  // Legend
+  drawLegend(ctx, w, [{ color, label: `${name} (${unit})` }]);
+}
+
 /** Draw a heatmap-style correlation matrix. Returns HTML string. */
 export function renderMatrixHTML(result) {
   const { ids, pearson, n_points } = result;

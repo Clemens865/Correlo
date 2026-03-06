@@ -3,8 +3,8 @@
  * Wires up UI, state management, WASM engine, and API layer.
  */
 
-import { fetchCatalog, fetchDataset, proxyFetch, aiParse, aiDiscover, aiInsight } from './api.js?v=2';
-import { drawOverlay, drawScatter, drawDualAxis, renderMatrixHTML } from './charts.js?v=2';
+import { fetchCatalog, fetchDataset, proxyFetch, aiParse, aiDiscover, aiInsight } from './api.js?v=3';
+import { drawOverlay, drawScatter, drawDualAxis, drawTimeSeries, renderMatrixHTML } from './charts.js?v=3';
 
 // --- WASM engine -----------------------------------------------------------
 let wasm = null;
@@ -186,7 +186,13 @@ function setupEventListeners() {
     filterDropdownCompatibility(selB.value, selA);
   });
 
-  fetchBtn.addEventListener('click', doFetchAndCompare);
+  fetchBtn.addEventListener('click', () => {
+    if (state.selectedA && state.selectedB && state.selectedA !== state.selectedB) {
+      doFetchAndCompare();
+    } else if (state.selectedA) {
+      doFetchSingle();
+    }
+  });
   clearBtn.addEventListener('click', doClear);
 
   aiSearchBtn.addEventListener('click', doAiSearch);
@@ -209,7 +215,12 @@ function setupEventListeners() {
 }
 
 function updateFetchBtn() {
-  fetchBtn.disabled = !(state.selectedA && state.selectedB && state.selectedA !== state.selectedB);
+  const hasA = !!state.selectedA;
+  const hasB = !!state.selectedB;
+  const hasBoth = hasA && hasB && state.selectedA !== state.selectedB;
+
+  fetchBtn.disabled = !hasA;
+  fetchBtn.textContent = hasBoth ? 'Fetch & Compare' : hasA ? 'Explore Dataset' : 'Fetch & Compare';
 }
 
 // Estimate the year range a dataset covers based on its max_history_days and granularity
@@ -376,6 +387,7 @@ function getSmartFetchParams(apiId, otherApiId = null) {
 async function doFetchAndCompare() {
   fetchBtn.disabled = true;
   fetchBtn.innerHTML = '<span class="loader"></span> Fetching...';
+  $('explorePanel').style.display = 'none';
 
   try {
     const paramsA = getSmartFetchParams(state.selectedA, state.selectedB);
@@ -397,8 +409,118 @@ async function doFetchAndCompare() {
   }
 
   fetchBtn.disabled = false;
-  fetchBtn.textContent = 'Fetch & Compare';
   updateFetchBtn();
+}
+
+// --- Fetch & Explore (single dataset) ---------------------------------------
+async function doFetchSingle() {
+  fetchBtn.disabled = true;
+  fetchBtn.innerHTML = '<span class="loader"></span> Fetching...';
+
+  // Hide compare panels
+  $('resultsPanel').style.display = 'none';
+  $('chartsPanel').style.display = 'none';
+  $('statsPanel').style.display = 'none';
+  $('tablePanel').style.display = 'none';
+  $('explorePanel').style.display = 'none';
+
+  try {
+    const params = getSmartFetchParams(state.selectedA);
+    log(`Fetching ${state.selectedA} (${params.days}d, ${params.country})...`);
+    state.dataA = await fetchDataset(state.selectedA, params);
+    const d = state.dataA;
+    log(`Got ${d.count} points from ${d.name}`, 'success');
+
+    if (!d.values || d.values.length === 0) {
+      log('Dataset returned no data', 'error');
+      return;
+    }
+
+    // Compute stats via WASM
+    const statsJson = wasm.compute_stats(JSON.stringify(d.values));
+    const stats = JSON.parse(statsJson);
+
+    // Moving average
+    const window = d.values.length > 60 ? 7 : d.values.length > 14 ? 3 : 0;
+    let movAvg = null;
+    if (window > 0) {
+      const maJson = wasm.moving_average(JSON.stringify(d.values), window);
+      movAvg = JSON.parse(maJson);
+    }
+
+    // Show explore panel
+    showExploreResults(d, stats, movAvg);
+
+  } catch (e) {
+    log(`Error: ${e.message}`, 'error');
+  } finally {
+    fetchBtn.disabled = false;
+    updateFetchBtn();
+  }
+}
+
+function showExploreResults(d, stats, movAvg) {
+  const panel = $('explorePanel');
+  panel.style.display = 'block';
+
+  // Stats cards
+  $('exploreStats').innerHTML = `
+    <div class="stat-card">
+      <div class="label">Mean</div>
+      <div class="value">${stats.mean.toFixed(2)}</div>
+      <div class="sub">${d.unit}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Median</div>
+      <div class="value">${stats.median.toFixed(2)}</div>
+      <div class="sub">${d.unit}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Std Dev</div>
+      <div class="value">${stats.std_dev.toFixed(2)}</div>
+      <div class="sub">Dispersion</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Range</div>
+      <div class="value">${stats.min.toFixed(2)} — ${stats.max.toFixed(2)}</div>
+      <div class="sub">${d.unit}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">IQR</div>
+      <div class="value">${stats.q1.toFixed(2)} — ${stats.q3.toFixed(2)}</div>
+      <div class="sub">25th — 75th percentile</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Data Points</div>
+      <div class="value">${d.count}</div>
+      <div class="sub">${d.labels[0]} to ${d.labels[d.labels.length - 1]}</div>
+    </div>
+  `;
+
+  // Chart
+  requestAnimationFrame(() => {
+    drawTimeSeries('exploreChart', d.labels, d.values, d.name, d.unit);
+  });
+
+  // Data table
+  $('exploreTableWrap').innerHTML = buildSingleTable(d);
+
+  // Store for CSV export
+  state._tableLabels = d.labels;
+  state._tableA = d.values;
+  state._tableB = null;
+}
+
+function buildSingleTable(d) {
+  let html = `<table class="data-table"><thead><tr>
+    <th>Date</th><th>${d.name} (${d.unit})</th>
+  </tr></thead><tbody>`;
+  for (let i = 0; i < d.labels.length; i++) {
+    const v = d.values[i];
+    html += `<tr><td>${d.labels[i]}</td><td>${v != null ? v.toFixed(2) : '—'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 function alignAndCorrelate() {
@@ -749,8 +871,22 @@ async function doBuildMatrix() {
   try {
     const datasets = [];
     const names = [];
+    const allApis = [...state.catalog, ...state.customDatasets];
+
+    // Find the coarsest granularity among selected to optimize fetch params
+    const granOrderLookup = { daily: 0, monthly: 1, yearly: 2 };
+    let coarsestId = ids[0];
     for (const id of ids) {
-      const params = getSmartFetchParams(id);
+      const api = allApis.find(a => a.id === id);
+      const cur = allApis.find(a => a.id === coarsestId);
+      if (api && cur && (granOrderLookup[api.granularity] || 0) > (granOrderLookup[cur.granularity] || 0)) {
+        coarsestId = id;
+      }
+    }
+
+    for (const id of ids) {
+      // Pass the coarsest-granularity dataset as "other" so time ranges expand
+      const params = getSmartFetchParams(id, coarsestId !== id ? coarsestId : null);
       log(`Matrix: fetching ${id} (${params.days}d)...`);
       const data = await fetchDataset(id, params);
       state.matrixData[id] = data;
@@ -809,7 +945,9 @@ async function doBuildMatrix() {
     }
 
     if (commonLabels.length < 3) {
-      log(`Only ${commonLabels.length} common dates across all datasets`, 'error');
+      log(`Only ${commonLabels.length} common dates across all datasets — need at least 3. Try datasets with more overlapping time ranges.`, 'error');
+      matrixBtn.disabled = false;
+      matrixBtn.textContent = 'Build Matrix';
       return;
     }
 
@@ -831,10 +969,10 @@ async function doBuildMatrix() {
 
   } catch (e) {
     log(`Matrix error: ${e.message}`, 'error');
+  } finally {
+    matrixBtn.disabled = false;
+    matrixBtn.textContent = 'Build Matrix';
   }
-
-  matrixBtn.disabled = false;
-  matrixBtn.textContent = 'Build Matrix';
 }
 
 // --- Custom API -------------------------------------------------------------
@@ -943,7 +1081,10 @@ function doClear() {
   $('chartsPanel').style.display = 'none';
   $('statsPanel').style.display = 'none';
   $('tablePanel').style.display = 'none';
+  $('explorePanel').style.display = 'none';
   $('aiInsight').innerHTML = '';
+  filterDropdownCompatibility('', selA);
+  filterDropdownCompatibility('', selB);
 }
 
 // --- CSV Export --------------------------------------------------------------
